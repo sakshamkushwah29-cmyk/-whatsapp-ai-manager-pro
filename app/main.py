@@ -14,8 +14,11 @@ from app.whatsapp_service import whatsapp_service
 load_dotenv()
 
 app = FastAPI(title="WhatsApp AI Manager Pro")
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
-templates = Jinja2Templates(directory="app/templates")
+
+# Use absolute paths for templates and static to ensure they work on Vercel
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
+templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
 def get_db():
     db = SessionLocal()
@@ -24,22 +27,21 @@ def get_db():
     finally:
         db.close()
 
-@app.on_event("startup")
-def startup_event():
-    init_db()
-    db = SessionLocal()
-    if not db.query(BusinessProfile).first():
-        profile = BusinessProfile(
-            brand_name="My Brand",
-            website_link="https://mysite.com",
-            brand_tone="Professional",
-            primary_goal="Help customers",
-            common_objections="None",
-            greeting_message="Hi! How can I help?"
-        )
-        db.add(profile)
-        db.commit()
-    db.close()
+# Ensure DB is initialized during import for Vercel startup
+init_db()
+db_startup = SessionLocal()
+if not db_startup.query(BusinessProfile).first():
+    profile = BusinessProfile(
+        brand_name="My Brand",
+        website_link="https://mysite.com",
+        brand_tone="Professional",
+        primary_goal="Help customers",
+        common_objections="None",
+        greeting_message="Hi! How can I help?"
+    )
+    db_startup.add(profile)
+    db_startup.commit()
+db_startup.close()
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request, db: Session = Depends(get_db)):
@@ -88,8 +90,8 @@ async def get_qr():
 
 @app.post("/webhook")
 async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
-    data = await request.json()
     try:
+        data = await request.json()
         if data.get("event") == "messages.upsert":
             message_data = data["data"]["message"]
             remote_jid = message_data["key"]["remoteJid"]
